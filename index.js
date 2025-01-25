@@ -34,23 +34,18 @@ const allowedOrigins = [
   'http://localhost:5173',
   'https://uq3l-1233c.web.app',
   'https://uq3l-1233c.firebaseapp.com',
-  'https://ema-gaming.onrender.com'
+  'https://ema-gaming.onrender.com',
+  'https://ema-gaming.web.app'
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: '*',  
   credentials: true
 }));
 
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins,
+    origin: '*',  
     methods: ["GET", "POST"],
     credentials: true
   },
