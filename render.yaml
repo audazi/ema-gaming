@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ema-gaming-server
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0
+      - key: PORT
+        value: 3001
+    healthCheckPath: /
+    autoDeploy: true

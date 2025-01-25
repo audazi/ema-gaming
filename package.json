@@ -1,0 +1,25 @@
+{
+  "name": "ema-chat-server",
+  "version": "1.0.0",
+  "description": "Chat server for EMA application",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "firebase-admin": "^11.11.1",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.1",
+    "dgram": "^1.0.1",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
