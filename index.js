@@ -38,10 +38,72 @@ const allowedOrigins = [
   'https://ema-gaming.web.app'
 ];
 
+// Add debug middleware to log all requests
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
+
 app.use(cors({
-  origin: '*',  
+  origin: '*',
   credentials: true
 }));
+
+// Add health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Server is running' });
+});
+
+// Add debug endpoint
+app.get('/debug', (req, res) => {
+  res.json({
+    env: process.env.NODE_ENV,
+    port: process.env.PORT,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    endpoints: app._router.stack
+      .filter(r => r.route)
+      .map(r => ({ path: r.route.path, methods: Object.keys(r.route.methods) }))
+  });
+});
+
+// Server status endpoint
+app.get('/api/server-status/:ip/:port', async (req, res) => {
+  const { ip, port } = req.params;
+  console.log(`Checking status for ${ip}:${port}`);
+  
+  try {
+    if (!ip || !port) {
+      return res.status(400).json({ 
+        status: 'error',
+        players: 0,
+        maxPlayers: 32,
+        error: 'Invalid IP or port' 
+      });
+    }
+
+    const parsedPort = parseInt(port);
+    if (isNaN(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+      return res.status(400).json({ 
+        status: 'error',
+        players: 0,
+        maxPlayers: 32,
+        error: 'Invalid port number' 
+      });
+    }
+
+    const status = await queryGameServer(ip, parsedPort);
+    res.json(status);
+  } catch (error) {
+    console.error('Server status error:', error);
+    res.status(500).json({ 
+      status: 'offline',
+      players: 0,
+      maxPlayers: 32,
+      error: error.message 
+    });
+  }
+});
 
 const io = new Server(httpServer, {
   cors: {
@@ -138,42 +200,6 @@ const queryGameServer = (ip, port) => {
     client.send(queryPacket, 0, queryPacket.length, port, ip);
   });
 };
-
-// Add server status endpoint
-app.get('/api/server-status/:ip/:port', async (req, res) => {
-  try {
-    const { ip, port } = req.params;
-    if (!ip || !port) {
-      return res.status(400).json({ 
-        status: 'error',
-        players: 0,
-        maxPlayers: 32,
-        error: 'Invalid IP or port' 
-      });
-    }
-
-    const parsedPort = parseInt(port);
-    if (isNaN(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
-      return res.status(400).json({ 
-        status: 'error',
-        players: 0,
-        maxPlayers: 32,
-        error: 'Invalid port number' 
-      });
-    }
-
-    const status = await queryGameServer(ip, parsedPort);
-    res.json(status);
-  } catch (error) {
-    console.error('Server status error:', error);
-    res.status(500).json({ 
-      status: 'offline',
-      players: 0,
-      maxPlayers: 32,
-      error: error.message 
-    });
-  }
-});
 
 io.on('connection', async (socket) => {
   console.log('New connection:', socket.id);
