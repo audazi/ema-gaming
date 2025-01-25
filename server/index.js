@@ -32,7 +32,8 @@ const httpServer = createServer(app);
 const allowedOrigins = [
   'http://localhost:5173',
   'https://uq3l-1233c.web.app',
-  'https://uq3l-1233c.firebaseapp.com'
+  'https://uq3l-1233c.firebaseapp.com',
+  'https://ema-gaming.onrender.com'
 ];
 
 app.use(cors({
