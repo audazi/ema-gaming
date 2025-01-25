@@ -148,9 +148,29 @@ const queryGameServer = (ip, port) => {
 app.get('/api/server-status/:ip/:port', async (req, res) => {
   try {
     const { ip, port } = req.params;
-    const status = await queryGameServer(ip, parseInt(port));
+    if (!ip || !port) {
+      return res.status(400).json({ 
+        status: 'error',
+        players: 0,
+        maxPlayers: 32,
+        error: 'Invalid IP or port' 
+      });
+    }
+
+    const parsedPort = parseInt(port);
+    if (isNaN(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+      return res.status(400).json({ 
+        status: 'error',
+        players: 0,
+        maxPlayers: 32,
+        error: 'Invalid port number' 
+      });
+    }
+
+    const status = await queryGameServer(ip, parsedPort);
     res.json(status);
   } catch (error) {
+    console.error('Server status error:', error);
     res.status(500).json({ 
       status: 'offline',
       players: 0,
