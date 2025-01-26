@@ -174,6 +174,174 @@ const io = new Server(httpServer, {
 // Map to store connected users
 const connectedUsers = new Map();
 
+// Map to store games
+const activeGames = new Map();
+
+io.on('connection', async (socket) => {
+  console.log('New connection:', socket.id);
+
+  // Verify user on connection
+  const auth = socket.handshake.auth;
+  if (!auth || !auth.uid) {
+    console.log('No auth data, disconnecting');
+    socket.disconnect();
+    return;
+  }
+
+  // Add user to connected users
+  connectedUsers.set(socket.id, {
+    id: auth.uid,
+    name: auth.displayName || 'Anonymous',
+    email: auth.email,
+    avatar: auth.photoURL
+  });
+
+  // Handle game creation
+  socket.on('createGame', async (gameData) => {
+    try {
+      console.log('Creating game:', gameData);
+      
+      // Store game in memory
+      activeGames.set(gameData.id, gameData);
+      
+      // Broadcast to all clients
+      io.emit('gameCreated', gameData);
+    } catch (error) {
+      console.error('Error creating game:', error);
+    }
+  });
+
+  // Handle joining games
+  socket.on('joinGame', async ({ gameId, player }) => {
+    try {
+      console.log('Player joining game:', gameId, player);
+      
+      const game = activeGames.get(gameId);
+      if (!game) {
+        console.error('Game not found:', gameId);
+        return;
+      }
+
+      // Initialize player with ready status
+      const playerWithReady = {
+        ...player,
+        isReady: false
+      };
+
+      // Add player to game
+      game.participants.push(playerWithReady);
+      activeGames.set(gameId, game);
+
+      // Broadcast to all clients
+      io.emit('playerJoined', { gameId, player: playerWithReady });
+    } catch (error) {
+      console.error('Error joining game:', error);
+    }
+  });
+
+  // Handle leaving games
+  socket.on('leaveGame', async ({ gameId, playerId }) => {
+    try {
+      console.log('Player leaving game:', gameId, playerId);
+      
+      const game = activeGames.get(gameId);
+      if (!game) {
+        console.error('Game not found:', gameId);
+        return;
+      }
+
+      // Remove player from game
+      game.participants = game.participants.filter(p => p.uid !== playerId);
+      activeGames.set(gameId, game);
+
+      // Broadcast to all clients
+      io.emit('playerLeft', { gameId, playerId });
+    } catch (error) {
+      console.error('Error leaving game:', error);
+    }
+  });
+
+  // Handle ready status changes
+  socket.on('toggleReady', async ({ gameId, playerId, isReady }) => {
+    try {
+      console.log('Player ready status changed:', gameId, playerId, isReady);
+      
+      const game = activeGames.get(gameId);
+      if (!game) {
+        console.error('Game not found:', gameId);
+        return;
+      }
+
+      // Update player ready status
+      game.participants = game.participants.map(p => 
+        p.uid === playerId ? { ...p, isReady } : p
+      );
+      activeGames.set(gameId, game);
+
+      // Broadcast to all clients
+      io.emit('playerReadyChanged', { gameId, playerId, isReady });
+
+      // Check if all players are ready
+      const allReady = game.participants.every(p => p.isReady);
+      if (allReady) {
+        io.emit('allPlayersReady', { gameId });
+      }
+    } catch (error) {
+      console.error('Error updating ready status:', error);
+    }
+  });
+
+  // Handle game updates
+  socket.on('updateGame', async ({ gameId, status }) => {
+    try {
+      console.log('Updating game status:', gameId, status);
+      
+      const game = activeGames.get(gameId);
+      if (!game) {
+        console.error('Game not found:', gameId);
+        return;
+      }
+
+      // Update game status
+      game.status = status;
+      activeGames.set(gameId, game);
+
+      // If game is starting, verify all players are ready
+      if (status === 'In Progress') {
+        const allReady = game.participants.every(p => p.isReady);
+        if (!allReady) {
+          console.error('Cannot start game - not all players are ready');
+          return;
+        }
+      }
+
+      // Broadcast to all clients
+      io.emit('gameUpdated', game);
+    } catch (error) {
+      console.error('Error updating game:', error);
+    }
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    const user = connectedUsers.get(socket.id);
+    connectedUsers.delete(socket.id);
+
+    // Handle any cleanup needed for games
+    if (user) {
+      // Find any games the user was in and handle their departure
+      for (const [gameId, game] of activeGames.entries()) {
+        if (game.participants.some(p => p.uid === user.id)) {
+          game.participants = game.participants.filter(p => p.uid !== user.id);
+          activeGames.set(gameId, game);
+          io.emit('playerLeft', { gameId, playerId: user.id });
+        }
+      }
+    }
+  });
+});
+
 // Save message to Firestore
 const saveMessage = async (message) => {
   try {
@@ -257,73 +425,6 @@ const queryGameServer = (ip, port) => {
     client.send(queryPacket, 0, queryPacket.length, port, ip);
   });
 };
-
-io.on('connection', async (socket) => {
-  console.log('New connection:', socket.id);
-
-  // Verify user on connection
-  const auth = socket.handshake.auth;
-  if (!auth || !auth.uid) {
-    console.log('No auth data, disconnecting');
-    socket.disconnect();
-    return;
-  }
-
-  // Add user to connected users
-  connectedUsers.set(socket.id, {
-    id: auth.uid,
-    name: auth.displayName || 'Anonymous',
-    email: auth.email,
-    avatar: auth.photoURL
-  });
-
-  // Send chat history
-  const history = await getChatHistory();
-  socket.emit('chat:history', history);
-
-  // Handle new messages
-  socket.on('chat:message', async (messageData) => {
-    const user = connectedUsers.get(socket.id);
-    if (!user) return;
-
-    const message = {
-      id: uuidv4(),
-      text: messageData.text,
-      sender: user,
-      timestamp: Date.now()
-    };
-
-    // Save to Firestore
-    await saveMessage(message);
-
-    // Broadcast to all clients
-    io.emit('chat:message', message);
-  });
-
-  // Handle typing status
-  socket.on('chat:typing', (isTyping) => {
-    const user = connectedUsers.get(socket.id);
-    if (!user) return;
-
-    socket.broadcast.emit('chat:typing', {
-      user: { name: user.name },
-      isTyping
-    });
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-    const user = connectedUsers.get(socket.id);
-    if (user) {
-      socket.broadcast.emit('chat:typing', {
-        user: { name: user.name },
-        isTyping: false
-      });
-    }
-    connectedUsers.delete(socket.id);
-  });
-});
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
