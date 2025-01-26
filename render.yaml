@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ema-gaming-server
+    name: ema-gaming
     env: node
     buildCommand: npm install
     startCommand: npm start
@@ -9,5 +9,9 @@ services:
         value: 18.0.0
       - key: PORT
         value: 3001
+      - key: FIREBASE_PROJECT_ID
+        value: uq3l-1233c
+      - key: FIREBASE_CLIENT_EMAIL
+        value: firebase-adminsdk-er3l5@uq3l-1233c.iam.gserviceaccount.com
     healthCheckPath: /
     autoDeploy: true
