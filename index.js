@@ -7,40 +7,48 @@ const { v4: uuidv4 } = require('uuid');
 const dgram = require('dgram');
 
 // Initialize Firebase Admin with environment variables
-const getPrivateKey = () => {
+const getFirebaseConfig = () => {
   try {
-    const key = process.env.FIREBASE_PRIVATE_KEY;
-    if (!key) {
-      console.warn('FIREBASE_PRIVATE_KEY environment variable is not set');
-      return null;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+
+    if (!privateKey || !projectId || !clientEmail) {
+      console.error('Missing Firebase credentials:', {
+        hasPrivateKey: !!privateKey,
+        hasProjectId: !!projectId,
+        hasClientEmail: !!clientEmail
+      });
+      throw new Error('Missing required Firebase credentials');
     }
-    return key.replace(/\\n/g, '\n');
+
+    return {
+      credential: admin.credential.cert({
+        projectId: projectId,
+        clientEmail: clientEmail,
+        // Handle the case where the key might be JSON stringified
+        privateKey: privateKey.replace(/\\n/g, '\n')
+      }),
+      databaseURL: `https://${projectId}.firebaseio.com`
+    };
   } catch (error) {
-    console.error('Error getting private key:', error);
-    return null;
+    console.error('Error getting Firebase config:', error);
+    throw error;
   }
 };
 
 // Initialize Firebase Admin
+let db;
 try {
-  const privateKey = getPrivateKey();
-  if (privateKey) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: privateKey
-      })
-    });
-    console.log('Firebase Admin initialized successfully');
-  } else {
-    console.warn('Skipping Firebase initialization due to missing credentials');
-  }
+  const config = getFirebaseConfig();
+  admin.initializeApp(config);
+  db = admin.firestore();
+  console.log('Firebase Admin initialized successfully');
 } catch (error) {
-  console.error('Error initializing Firebase:', error);
+  console.error('Failed to initialize Firebase:', error);
+  process.exit(1); // Exit if we can't connect to Firebase
 }
 
-const db = admin.firestore();
 const app = express();
 const httpServer = createServer(app);
 
@@ -152,7 +160,7 @@ const io = new Server(httpServer, {
   transports: ['websocket', 'polling']
 });
 
-// Store connected users
+// Map to store connected users
 const connectedUsers = new Map();
 
 // Save message to Firestore
