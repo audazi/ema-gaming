@@ -176,6 +176,88 @@ const connectedUsers = new Map();
 
 // Map to store games
 const activeGames = new Map();
+const readyChecks = new Map();
+
+const SERVER_IP = '5.104.111.196:27961';
+const SERVER_PASSWORD = 'ema123';
+const READY_CHECK_TIMEOUT = 30000; // 30 seconds
+
+const startReadyCheck = (gameId) => {
+  const game = activeGames.get(gameId);
+  if (!game) return;
+
+  const readyCheck = {
+    gameId,
+    startTime: Date.now(),
+    readyPlayers: new Set(),
+    timeoutId: setTimeout(() => {
+      cancelReadyCheck(gameId);
+    }, READY_CHECK_TIMEOUT)
+  };
+
+  readyChecks.set(gameId, readyCheck);
+
+  // Notify all players
+  io.emit('queueFull', { gameId });
+
+  // Start sending countdown updates
+  const countdownInterval = setInterval(() => {
+    const timeLeft = READY_CHECK_TIMEOUT - (Date.now() - readyCheck.startTime);
+    if (timeLeft > 0) {
+      io.emit('readyCheck', { gameId, timeLeft });
+    } else {
+      clearInterval(countdownInterval);
+    }
+  }, 1000);
+
+  readyCheck.countdownInterval = countdownInterval;
+};
+
+const cancelReadyCheck = (gameId) => {
+  const readyCheck = readyChecks.get(gameId);
+  if (!readyCheck) return;
+
+  clearTimeout(readyCheck.timeoutId);
+  clearInterval(readyCheck.countdownInterval);
+  readyChecks.delete(gameId);
+
+  // Reset ready status for all players
+  const game = activeGames.get(gameId);
+  if (game) {
+    game.participants = game.participants.map(p => ({ ...p, isReady: false }));
+    activeGames.set(gameId, game);
+    io.emit('gameUpdated', game);
+  }
+};
+
+const checkAndStartGame = (gameId) => {
+  const readyCheck = readyChecks.get(gameId);
+  const game = activeGames.get(gameId);
+  
+  if (!readyCheck || !game) return;
+
+  // Check if all players are ready
+  const allReady = game.participants.length === readyCheck.readyPlayers.size;
+
+  if (allReady) {
+    // Cancel the ready check timers
+    clearTimeout(readyCheck.timeoutId);
+    clearInterval(readyCheck.countdownInterval);
+    readyChecks.delete(gameId);
+
+    // Update game status
+    game.status = 'In Progress';
+    activeGames.set(gameId, game);
+
+    // Notify players with server details
+    io.emit('gameStarting', { 
+      gameId, 
+      serverIp: SERVER_IP, 
+      password: SERVER_PASSWORD 
+    });
+    io.emit('gameUpdated', game);
+  }
+};
 
 io.on('connection', async (socket) => {
   console.log('New connection:', socket.id);
@@ -234,8 +316,39 @@ io.on('connection', async (socket) => {
 
       // Broadcast to all clients
       io.emit('playerJoined', { gameId, player: playerWithReady });
+
+      // Check if queue is full and start ready check
+      if (game.participants.length === game.maxPlayers) {
+        startReadyCheck(gameId);
+      }
     } catch (error) {
       console.error('Error joining game:', error);
+    }
+  });
+
+  // Handle player ready status
+  socket.on('playerReady', ({ gameId, playerId }) => {
+    try {
+      const readyCheck = readyChecks.get(gameId);
+      if (!readyCheck) return;
+
+      readyCheck.readyPlayers.add(playerId);
+      checkAndStartGame(gameId);
+    } catch (error) {
+      console.error('Error handling player ready:', error);
+    }
+  });
+
+  // Handle player not ready
+  socket.on('playerNotReady', ({ gameId, playerId }) => {
+    try {
+      const readyCheck = readyChecks.get(gameId);
+      if (!readyCheck) return;
+
+      readyCheck.readyPlayers.delete(playerId);
+      cancelReadyCheck(gameId);
+    } catch (error) {
+      console.error('Error handling player not ready:', error);
     }
   });
 
@@ -256,6 +369,11 @@ io.on('connection', async (socket) => {
 
       // Broadcast to all clients
       io.emit('playerLeft', { gameId, playerId });
+
+      // Cancel ready check if active
+      if (readyChecks.has(gameId)) {
+        cancelReadyCheck(gameId);
+      }
     } catch (error) {
       console.error('Error leaving game:', error);
     }
@@ -336,6 +454,11 @@ io.on('connection', async (socket) => {
           game.participants = game.participants.filter(p => p.uid !== user.id);
           activeGames.set(gameId, game);
           io.emit('playerLeft', { gameId, playerId: user.id });
+
+          // Cancel ready check if active
+          if (readyChecks.has(gameId)) {
+            cancelReadyCheck(gameId);
+          }
         }
       }
     }
