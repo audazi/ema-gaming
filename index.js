@@ -8,22 +8,37 @@ const dgram = require('dgram');
 
 // Initialize Firebase Admin with environment variables
 const getPrivateKey = () => {
-  const key = process.env.FIREBASE_PRIVATE_KEY;
-  if (!key) {
-    throw new Error('FIREBASE_PRIVATE_KEY environment variable is not set');
+  try {
+    const key = process.env.FIREBASE_PRIVATE_KEY;
+    if (!key) {
+      console.warn('FIREBASE_PRIVATE_KEY environment variable is not set');
+      return null;
+    }
+    return key.replace(/\\n/g, '\n');
+  } catch (error) {
+    console.error('Error getting private key:', error);
+    return null;
   }
-  // Handle the case where the key might be JSON stringified
-  return key.replace(/\\n/g, '\n');
 };
 
 // Initialize Firebase Admin
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: getPrivateKey()
-  })
-});
+try {
+  const privateKey = getPrivateKey();
+  if (privateKey) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey
+      })
+    });
+    console.log('Firebase Admin initialized successfully');
+  } else {
+    console.warn('Skipping Firebase initialization due to missing credentials');
+  }
+} catch (error) {
+  console.error('Error initializing Firebase:', error);
+}
 
 const db = admin.firestore();
 const app = express();
@@ -38,32 +53,55 @@ const allowedOrigins = [
   'https://ema-gaming.web.app'
 ];
 
-// Add debug middleware to log all requests
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  next();
-});
-
 app.use(cors({
   origin: '*',
   credentials: true
 }));
 
-// Add health check endpoint
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
 });
 
-// Add debug endpoint
+// Add error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ 
+    status: 'error',
+    message: 'Something broke!',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// Root endpoint for health check
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Debug endpoint
 app.get('/debug', (req, res) => {
   res.json({
+    status: 'ok',
     env: process.env.NODE_ENV,
     port: process.env.PORT,
     uptime: process.uptime(),
     memory: process.memoryUsage(),
+    firebase: {
+      initialized: !!admin.apps.length,
+      projectId: process.env.FIREBASE_PROJECT_ID
+    },
     endpoints: app._router.stack
       .filter(r => r.route)
-      .map(r => ({ path: r.route.path, methods: Object.keys(r.route.methods) }))
+      .map(r => ({ 
+        path: r.route.path, 
+        methods: Object.keys(r.route.methods) 
+      }))
   });
 });
 
