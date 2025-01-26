@@ -13,5 +13,9 @@ services:
         value: uq3l-1233c
       - key: FIREBASE_CLIENT_EMAIL
         value: firebase-adminsdk-er3l5@uq3l-1233c.iam.gserviceaccount.com
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: "https://uq3l-1233c.web.app,https://uq3l-1233c.firebaseapp.com,http://localhost:5173"
     healthCheckPath: /
     autoDeploy: true

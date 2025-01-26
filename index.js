@@ -26,7 +26,6 @@ const getFirebaseConfig = () => {
       credential: admin.credential.cert({
         projectId: projectId,
         clientEmail: clientEmail,
-        // Handle the case where the key might be JSON stringified
         privateKey: privateKey.replace(/\\n/g, '\n')
       }),
       databaseURL: `https://${projectId}.firebaseio.com`
@@ -52,8 +51,8 @@ try {
 const app = express();
 const httpServer = createServer(app);
 
-// Configure CORS
-const allowedOrigins = [
+// Configure CORS from environment variables
+const corsOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [
   'http://localhost:5173',
   'https://uq3l-1233c.web.app',
   'https://uq3l-1233c.firebaseapp.com',
@@ -61,8 +60,19 @@ const allowedOrigins = [
   'https://ema-gaming.web.app'
 ];
 
+console.log('Allowed CORS origins:', corsOrigins);
+
 app.use(cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (corsOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
@@ -151,9 +161,10 @@ app.get('/api/server-status/:ip/:port', async (req, res) => {
   }
 });
 
+// Configure Socket.IO with CORS
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',  
+    origin: corsOrigins,
     methods: ["GET", "POST"],
     credentials: true
   },
