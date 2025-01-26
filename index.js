@@ -279,17 +279,48 @@ io.on('connection', async (socket) => {
   });
 
   // Handle game creation
-  socket.on('createGame', async (gameData) => {
+  socket.on('createGame', async (gameData, callback) => {
     try {
       console.log('Creating game:', gameData);
       
+      // Validate game data
+      if (!gameData.title || !gameData.maxPlayers || !gameData.date || !gameData.time) {
+        throw new Error('Missing required fields');
+      }
+
+      if (gameData.maxPlayers < 2 || gameData.maxPlayers > 32) {
+        throw new Error('Invalid max players value');
+      }
+
+      // Validate user is authenticated
+      const user = connectedUsers.get(socket.id);
+      if (!user || user.id !== gameData.createdBy) {
+        throw new Error('Unauthorized');
+      }
+
       // Store game in memory
-      activeGames.set(gameData.id, gameData);
+      activeGames.set(gameData.id, {
+        ...gameData,
+        participants: [{
+          uid: user.id,
+          displayName: user.name,
+          rating: gameData.participants[0].rating,
+          isReady: false
+        }]
+      });
       
       // Broadcast to all clients
       io.emit('gameCreated', gameData);
+
+      // Send success response
+      if (callback) {
+        callback({ success: true });
+      }
     } catch (error) {
       console.error('Error creating game:', error);
+      if (callback) {
+        callback({ error: error.message });
+      }
     }
   });
 
